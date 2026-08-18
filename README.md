@@ -1,76 +1,126 @@
-# Eltex MES firmware automation with Ansible
+# Eltex Flasher
 
-This project performs a one-shot firmware upgrade. It does **not** configure the
-switch to download firmware on every reboot.
+Automated firmware deployment tool for Eltex MES switches.
 
-The workflow is:
+Monitors the Eltex Validator web UI for new firmware images and pushes them to switches over TFTP via Ansible — fully hands-off.
 
-1. `show bootvar`
-2. If target version is already active: do nothing.
-3. If target version is already in the inactive image: select it.
-4. Otherwise run `boot system tftp://...`, which downloads the image to the
-   inactive area and makes it active after reboot.
-5. `reload`
-6. Wait for SSH.
-7. Run `show bootvar` again and verify the target version.
+## How it works
 
-The Eltex MES CLI documentation describes `boot system source_url` as copying
-firmware from the server into the inactive memory area, and `boot system
-inactive-image` as booting the inactive image. It also documents `show bootvar`
-for inspecting the two images.
-
-## Install
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install ansible
-
-ansible-galaxy collection install -r requirements.yml
+```
+┌──────────────┐      poll       ┌─────────────────┐
+│   Flasher    │ ──────────────> │ Eltex Validator  │
+│  (Python)    │ <────────────── │   (Web UI API)   │
+└──────┬───────┘    new image    └─────────────────┘
+       │
+       │  ansible-playbook
+       ▼
+┌──────────────┐     TFTP      ┌──────────────────┐
+│   Ansible    │ ────────────> │  Eltex MES Switch │
+│              │    firmware    │                   │
+└──────────────┘               └──────────────────┘
 ```
 
-## Configure
+1. **Poll** — the Flasher logs into the Validator and checks for the latest firmware image.
+2. **Detect** — if a new image version is found (different from the last known one), deployment starts.
+3. **Deploy** — Ansible connects to the target switch via SSH and runs `boot system tftp://...`, which downloads the image to inactive memory and sets it as the next boot image.
+4. **Reboot** — the switch reloads and boots into the new firmware.
+5. **Repeat** — the Flasher keeps polling in a loop, ready for the next update.
 
-Edit:
+The tool does **not** enable Eltex's persistent "download firmware on boot" mechanism. Each upgrade is a one-shot operation.
 
-- `inventory/hosts.yml`
-- `group_vars/eltex.yml`
+## Project structure
 
-Make sure the TFTP server is reachable from the switch itself.
-
-The `reload_prompt` is intentionally configurable because the exact confirmation
-prompt can differ between firmware trains. Test `reload` manually on one lab
-switch before mass rollout.
-
-## Check only
-
-```bash
-ansible-playbook playbooks/check.yml --ask-pass
+```
+eltex-flasher/
+├── main.py              # Entry point
+├── inventory.yml        # Ansible inventory (switch hosts)
+├── upgrade.yml          # Ansible playbook (boot + reload)
+├── src/
+│   ├── api.py           # Eltex Validator HTTP client
+│   ├── app.py           # Flasher orchestrator (poll + deploy)
+│   ├── config.py        # Configuration from .env
+│   └── ui.py            # (reserved)
+├── .env.example         # Environment variable template
+└── pyproject.toml       # Python project metadata
 ```
 
-## Upgrade one switch
+## Prerequisites
+
+- Python 3.14+
+- [uv](https://docs.astral.sh/uv/) package manager
+- Ansible with `ansible.netcommon` and `nikitamishagin.eltex_mes` collections
+- TFTP server reachable from the target switches
+- Network access from the machine running the Flasher to the Validator and the switches
+
+## Installation
 
 ```bash
-ansible-playbook playbooks/upgrade.yml --limit sw01 --ask-pass
+# Clone the repo
+git clone <repo-url> && cd eltex-flasher
+
+# Install dependencies
+uv sync
+
+# Install Ansible collections
+ansible-galaxy collection install ansible.netcommon
+ansible-galaxy collection install nikitamishagin.eltex_mes
 ```
 
-## Upgrade the whole group
+## Configuration
 
-The playbook uses `serial: 1`, so switches are upgraded one at a time.
+Copy the example environment file and fill in your values:
 
 ```bash
-ansible-playbook playbooks/upgrade.yml --ask-pass
+cp .env.example .env
 ```
 
-## Important
+| Variable | Description | Default |
+|---|---|---|
+| `VALIDATOR_URL` | Eltex Validator base URL | `https://validator-v2.eltex.loc` |
+| `VALIDATOR_USER` | Validator login | — |
+| `VALIDATOR_PASSWORD` | Validator password | — |
+| `ANSIBLE_USER` | SSH username for switches | `admin` |
+| `ANSIBLE_PASSWORD` | SSH password for switches | `admin` |
+| `TFTP_SERVER_IP` | IP of the TFTP server switches pull from | `192.168.246.95` |
+| `DOWNLOAD_DIR` | Local dir for downloaded images | `~/work_pc` |
+| `POLL_INTERVAL` | Seconds between Validator checks | `30` |
+| `ANSIBLE_COMMAND_TIMEOUT` | Ansible command timeout in seconds | `600` |
 
-Do not enable Eltex's persistent "download firmware on boot" mechanism for this
-workflow. The playbook explicitly chooses the image for this one upgrade only,
-so an ordinary reboot later will not trigger another TFTP download.
+Edit `inventory.yml` to add your switches and `src/config.py` to map image names to switch IPs.
 
-Before production use, test:
+## Usage
 
-- the exact `boot system tftp://...` syntax on your MES model;
-- the exact `reload` confirmation prompt;
-- the target image compatibility with the hardware model;
-- that the inactive image is preserved as the rollback image.
+```bash
+# Run the Flasher (continuous polling mode)
+uv run main.py
+```
+
+The Flasher will:
+- Log into the Validator
+- Parse the latest firmware image from the files page
+- Poll periodically for new versions
+- Trigger Ansible deployment when a new image appears
+
+### Stop
+
+Press `Ctrl+C` to stop gracefully.
+
+## Upgrade workflow (per switch)
+
+| Step | What happens |
+|---|---|
+| 1 | Ansible connects via SSH |
+| 2 | Runs `boot system tftp://<server>/<image>` — downloads to inactive slot |
+| 3 | Runs `reload` — switch reboots |
+| 4 | Switch boots from the newly written image |
+
+## Important notes
+
+- **Test first** — verify the `boot system` syntax and `reload` prompt on your specific Eltex MES model before mass rollout.
+- **One-shot** — the playbook does not enable persistent TFTP download on boot. Subsequent reboots will not trigger another download.
+- **Rollback** — the previous firmware is preserved in the inactive image slot. If the new firmware fails, you can manually switch back.
+- **Serial deployment** — add `serial: 1` to the Ansible playbook if deploying to multiple switches to upgrade them one at a time.
+
+## License
+
+MIT

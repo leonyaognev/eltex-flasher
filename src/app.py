@@ -11,6 +11,19 @@ from .api import (
     login,
     parse_latest_file,
 )
+from .config import (
+    ANSIBLE_COMMAND_TIMEOUT,
+    ANSIBLE_INVENTORY,
+    ANSIBLE_PLAYBOOK,
+    POST_UPGRADE_DELAY,
+    POLL_GRANULARITY,
+    POLL_INTERVAL,
+    RETRY_DELAY,
+    SWITCH_HOST,
+    TFTP_SERVER_IP,
+    SWITCH_USERNAME,
+    ANSIBLE_PASSWORD,
+)
 
 
 def log(level: str, message: str) -> None:
@@ -22,10 +35,15 @@ async def _ansible_switches(tftp_link: str):
     process = await asyncio.create_subprocess_exec(
         "ansible-playbook",
         "-i",
-        "inventory.yml",
-        "upgrade.yml",
+        ANSIBLE_INVENTORY,
+        ANSIBLE_PLAYBOOK,
         "--extra-vars",
-        f"tftp_link={tftp_link}",
+        f"tftp_link={tftp_link} \
+        switch_host={SWITCH_HOST} \
+        tftp_server_ip={TFTP_SERVER_IP} \
+        switch_username={SWITCH_USERNAME} \
+        ansible_password={ANSIBLE_PASSWORD} \
+        ansible_command_timeout={ANSIBLE_COMMAND_TIMEOUT}",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -47,7 +65,7 @@ def _do_login() -> None:
         login()
     except requests.RequestException as error:
         log("ERROR", f"Login failed: {error}")
-        time.sleep(2)
+        time.sleep(RETRY_DELAY)
         raise
 
     log("INFO", "Login successful")
@@ -69,7 +87,7 @@ def _init_state() -> tuple:
 
     except Exception as error:
         log("ERROR", str(error))
-        time.sleep(2)
+        time.sleep(RETRY_DELAY)
         raise
 
     log("INFO", f"Current image: {last_name} ({last_id})")
@@ -84,8 +102,8 @@ async def main() -> None:
     log("INFO", "Watching for a new image...")
 
     while True:
-        for _ in range(30):
-            await asyncio.sleep(1)
+        for _ in range(POLL_INTERVAL):
+            await asyncio.sleep(POLL_GRANULARITY)
 
         try:
             html = await asyncio.to_thread(get_latest_file)
@@ -105,7 +123,7 @@ async def main() -> None:
 
                 await _ansible_switches(tftp_link)
 
-                await asyncio.sleep(2)
+                await asyncio.sleep(POST_UPGRADE_DELAY)
 
                 log("INFO", "Watching for a new image...")
 

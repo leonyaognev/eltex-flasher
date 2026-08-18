@@ -6,16 +6,24 @@ import requests
 import urllib3
 from bs4 import BeautifulSoup
 
-from .config import DOWNLOAD_DIR, URL, VALIDATOR_PASSWORD, VALIDATOR_USER
+from .config import (
+    DOWNLOAD_CHUNK_SIZE,
+    DOWNLOAD_DIR,
+    VALIDATOR_PASSWORD,
+    VALIDATOR_URL,
+    VALIDATOR_USER,
+    VERIFY_SSL,
+)
 
 session = requests.Session()
 
-session.verify = False
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+session.verify = VERIFY_SSL
+if not VERIFY_SSL:
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def get_csrf_from_login() -> str:
-    response = session.get(f"{URL}/login/")
+    response = session.get(f"{VALIDATOR_URL}/login/")
     response.raise_for_status()
 
     match = re.search(
@@ -33,7 +41,7 @@ def login() -> None:
     csrf_token = get_csrf_from_login()
 
     response = session.post(
-        f"{URL}/login/",
+        f"{VALIDATOR_URL}/login/",
         data={
             "login": VALIDATOR_USER,
             "password": VALIDATOR_PASSWORD,
@@ -44,7 +52,7 @@ def login() -> None:
 
 
 def get_upload_csrf() -> str:
-    response = session.get(f"{URL}/files/")
+    response = session.get(f"{VALIDATOR_URL}/files/")
     response.raise_for_status()
 
     match = re.search(
@@ -59,7 +67,7 @@ def get_upload_csrf() -> str:
 
 
 def get_latest_file() -> str:
-    response = session.get(f"{URL}/files/")
+    response = session.get(f"{VALIDATOR_URL}/files/")
     response.raise_for_status()
 
     return response.text
@@ -94,13 +102,13 @@ def download_file(file_id: str, file_name: str) -> None:
     output_path = DOWNLOAD_DIR / file_name
 
     response = session.get(
-        f"{URL}/files/{file_id}",
+        f"{VALIDATOR_URL}/files/{file_id}",
         stream=True,
     )
     response.raise_for_status()
 
     with output_path.open("wb") as file:
-        for chunk in response.iter_content(chunk_size=8192):
+        for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
             if chunk:
                 file.write(chunk)
 

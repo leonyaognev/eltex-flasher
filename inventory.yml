@@ -1,15 +1,16 @@
 ---
 all:
   vars:
-    ansible_command_timeout: 600
+    ansible_command_timeout: "{{ ansible_command_timeout }}"
 
   children:
     eltex_ph5:
       hosts:
         sw01:
-          ansible_host: 192.168.246.94
-          tftp_server_ip: 192.168.246.95
-          ansible_user: admin
-          ansible_password: admin
+          ansible_host: "{{ switch_host }}"
+          tftp_server_ip: "{{ tftp_server_ip }}"
+          ansible_user: "{{ switch_username }}"
+          ansible_password: "{{ ansible_password }}"
+
           ansible_connection: ansible.netcommon.network_cli
           ansible_network_os: nikitamishagin.eltex_mes.mes

@@ -2,22 +2,19 @@
 
 import asyncio
 import sys
-
-from rich.console import Console
+from datetime import datetime
 
 from src.app import main
-
-console = Console()
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
 
     except KeyboardInterrupt:
-        console.print()
-        console.print("[bold yellow]Stopped by user.[/bold yellow]")
+        ts = datetime.now().strftime("%H:%M:%S")
+        print(f"[{ts}] [INFO] Stopped by user.")
 
     except Exception as error:
-        console.print()
-        console.print(f"[bold red]Fatal error:[/bold red] {error}")
+        ts = datetime.now().strftime("%H:%M:%S")
+        print(f"[{ts}] [FATAL] {error}")
         sys.exit(1)

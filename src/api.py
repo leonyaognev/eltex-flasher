@@ -10,10 +10,7 @@ from .config import DOWNLOAD_DIR, URL, VALIDATOR_PASSWORD, VALIDATOR_USER
 
 session = requests.Session()
 
-# Аналог curl -ks
 session.verify = False
-
-# Убираем InsecureRequestWarning из-за verify=False
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 

@@ -1,12 +1,8 @@
 import time
-import json
 import asyncio
-import subprocess
 from datetime import datetime
 
 import requests
-from rich.console import Console
-from rich.live import Live
 
 from .api import (
     get_latest_file,
@@ -15,16 +11,14 @@ from .api import (
     login,
     parse_latest_file,
 )
-from .ui import ValidatorUI
-from .config import variables
 
 
-console = Console()
+def log(level: str, message: str) -> None:
+    ts = datetime.now().strftime("%H:%M:%S")
+    print(f"[{ts}] [{level}] {message}", flush=True)
 
 
 async def _ansible_switches(tftp_link: str):
-    variables["tftp_link"] = tftp_link
-
     process = await asyncio.create_subprocess_exec(
         "ansible-playbook",
         "-i",
@@ -46,32 +40,25 @@ async def _ansible_switches(tftp_link: str):
     return stdout.decode()
 
 
-def _do_login(ui: ValidatorUI, live: Live) -> None:
-    ui.set_status("Logging in", "yellow")
-    ui.message = "Authenticating..."
+def _do_login() -> None:
+    log("INFO", "Logging in...")
 
     try:
         login()
-
     except requests.RequestException as error:
-        ui.set_status("Login failed", "red")
-        ui.message = str(error)
-        ui.add_event("ERROR", f"Login failed: {error}")
-
-        live.update(ui.render())
+        log("ERROR", f"Login failed: {error}")
         time.sleep(2)
-
         raise
 
-    ui.add_event("INFO", "Login successful")
+    log("INFO", "Login successful")
 
 
-def _init_state(ui: ValidatorUI, live: Live) -> None:
+def _init_state() -> tuple:
+    log("INFO", "Initializing...")
+
     try:
         get_upload_csrf()
-
         html = get_latest_file()
-
         last_id, last_name = parse_latest_file(html)
 
         if last_id is None:
@@ -81,102 +68,52 @@ def _init_state(ui: ValidatorUI, live: Live) -> None:
             raise RuntimeError("Latest file name not found")
 
     except Exception as error:
-        ui.set_status("Initialization failed", "red")
-        ui.message = str(error)
-        ui.add_event("ERROR", str(error))
-
-        live.update(ui.render())
+        log("ERROR", str(error))
         time.sleep(2)
-
         raise
 
-    ui.image_id = last_id
-    ui.image_name = last_name
-
-    ui.set_status("Watching", "green")
-    ui.message = "Watching for a new image..."
-
-    ui.add_event(
-        "INFO",
-        f"Current image: {last_name} ({last_id})",
-    )
-
-    live.update(ui.render())
+    log("INFO", f"Current image: {last_name} ({last_id})")
+    return last_id, last_name
 
 
 async def main() -> None:
-    ui = ValidatorUI()
+    _do_login()
 
-    with Live(
-        ui.render(),
-        console=console,
-        refresh_per_second=4,
-        transient=False,
-    ) as live:
-        _do_login(ui, live)
+    image_id, image_name = _init_state()
 
-        _init_state(ui, live)
+    log("INFO", "Watching for a new image...")
 
-        # ------------------------------------------------------------------
-        # Основной polling loop
-        # ------------------------------------------------------------------
+    while True:
+        for _ in range(30):
+            await asyncio.sleep(1)
 
-        while True:
-            ui.next_check = datetime.now()
+        try:
+            html = await asyncio.to_thread(get_latest_file)
+            current_id, current_name = parse_latest_file(html)
 
-            for _ in range(30):
-                await asyncio.sleep(1)
+            if current_id is None:
+                continue
 
-                ui.next_check = datetime.now()
-                live.update(ui.render())
+            if current_id != image_id:
+                image_id = current_id
+                image_name = current_name
 
-            ui.checks += 1
-            ui.last_check = datetime.now()
+                tftp_link = get_tftp_link(html)
 
-            try:
-                html = await asyncio.to_thread(get_latest_file)
+                log("NEW", f"New image: {current_name} ({current_id})")
+                log("INFO", f"TFTP: {tftp_link}")
 
-                current_id, current_name = parse_latest_file(html)
+                await _ansible_switches(tftp_link)
 
-                if current_id is None:
-                    continue
+                await asyncio.sleep(2)
 
-                if current_id != ui.image_id:
-                    ui.image_id = current_id
-                    ui.image_name = current_name
+                log("INFO", "Watching for a new image...")
 
-                    tftp_link = get_tftp_link(html)
-                    ui.tftp_link = tftp_link
+            else:
+                log("INFO", "No new image")
 
-                    ui.set_status("New image", "bold green")
-                    ui.message = f"New image detected: {current_name}"
+        except requests.RequestException as error:
+            log("ERROR", f"HTTP: {error}")
 
-                    ui.add_event("NEW", f"{current_name} ({current_id})")
-                    ui.add_event("INFO", tftp_link)
-
-                    await _ansible_switches(tftp_link)
-
-                    live.update(ui.render())
-
-                    await asyncio.sleep(2)
-
-                    ui.set_status("Watching", "green")
-                    ui.message = "Watching for a new image..."
-
-                else:
-                    ui.set_status("Watching", "green")
-                    ui.message = "No new image"
-
-            except requests.RequestException as error:
-                ui.set_status("HTTP error", "red")
-                ui.message = str(error)
-
-                ui.add_event("ERROR", f"HTTP: {error}")
-
-            except Exception as error:
-                ui.set_status("Error", "red")
-                ui.message = str(error)
-
-                ui.add_event("ERROR", str(error))
-
-            live.update(ui.render())
+        except Exception as error:
+            log("ERROR", str(error))

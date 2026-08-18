@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import asyncio
 import sys
 
 from rich.console import Console
@@ -10,7 +11,7 @@ console = Console()
 
 if __name__ == "__main__":
     try:
-        main()
+        asyncio.run(main())
 
     except KeyboardInterrupt:
         console.print()

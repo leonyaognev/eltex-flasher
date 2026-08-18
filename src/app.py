@@ -1,5 +1,6 @@
 import time
 import json
+import asyncio
 import subprocess
 from datetime import datetime
 
@@ -15,29 +16,34 @@ from .api import (
     parse_latest_file,
 )
 from .ui import ValidatorUI
-
 from .config import variables
 
 
 console = Console()
 
 
-def _ansible_switches(tftp_link: str):
+async def _ansible_switches(tftp_link: str):
     variables["tftp_link"] = tftp_link
-    result = subprocess.run(
-        [
-            "ansible-playbook",
-            "-i",
-            "inventory.ini",
-            "deploy.yml",
-            "--extra-vars",
-            f"tftp_link={variables['tftp_link']}",
-        ],
-        text=True,
+
+    process = await asyncio.create_subprocess_exec(
+        "ansible-playbook",
+        "-i",
+        "inventory.yml",
+        "upgrade.yml",
+        "--extra-vars",
+        f"tftp_link={tftp_link}",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
     )
 
-    if result.returncode != 0:
-        raise RuntimeError("Deploy failed")
+    stdout, stderr = await process.communicate()
+
+    if process.returncode != 0:
+        raise RuntimeError(
+            f"Deploy failed with code {process.returncode}\n{stderr.decode()}"
+        )
+
+    return stdout.decode()
 
 
 def _do_login(ui: ValidatorUI, live: Live) -> None:
@@ -98,7 +104,7 @@ def _init_state(ui: ValidatorUI, live: Live) -> None:
     live.update(ui.render())
 
 
-def main() -> None:
+async def main() -> None:
     ui = ValidatorUI()
 
     with Live(
@@ -119,30 +125,20 @@ def main() -> None:
             ui.next_check = datetime.now()
 
             for _ in range(30):
-                time.sleep(1)
+                await asyncio.sleep(1)
 
                 ui.next_check = datetime.now()
-
                 live.update(ui.render())
 
             ui.checks += 1
             ui.last_check = datetime.now()
-            ui.next_check = datetime.now()
 
             try:
-                html = get_latest_file()
+                html = await asyncio.to_thread(get_latest_file)
 
                 current_id, current_name = parse_latest_file(html)
 
                 if current_id is None:
-                    ui.set_status("Warning", "yellow")
-                    ui.message = "Current file ID not found"
-                    ui.add_event(
-                        "WARN",
-                        "Current file ID not found",
-                    )
-
-                    live.update(ui.render())
                     continue
 
                 if current_id != ui.image_id:
@@ -150,7 +146,6 @@ def main() -> None:
                     ui.image_name = current_name
 
                     tftp_link = get_tftp_link(html)
-
                     ui.tftp_link = tftp_link
 
                     ui.set_status("New image", "bold green")
@@ -159,10 +154,12 @@ def main() -> None:
                     ui.add_event("NEW", f"{current_name} ({current_id})")
                     ui.add_event("INFO", tftp_link)
 
-                    _ansible_switches(tftp_link)
+                    await _ansible_switches(tftp_link)
 
                     live.update(ui.render())
-                    time.sleep(2)
+
+                    await asyncio.sleep(2)
+
                     ui.set_status("Watching", "green")
                     ui.message = "Watching for a new image..."
 

@@ -1,29 +1,11 @@
 import time
 import asyncio
-from datetime import datetime
-
 import requests
 
-from .api import (
-    get_latest_file,
-    get_tftp_link,
-    get_upload_csrf,
-    login,
-    parse_latest_file,
-)
-from .config import (
-    ANSIBLE_COMMAND_TIMEOUT,
-    ANSIBLE_INVENTORY,
-    ANSIBLE_PLAYBOOK,
-    POST_UPGRADE_DELAY,
-    POLL_GRANULARITY,
-    POLL_INTERVAL,
-    RETRY_DELAY,
-    SWITCH_HOST,
-    TFTP_SERVER_IP,
-    SWITCH_USERNAME,
-    ANSIBLE_PASSWORD,
-)
+from datetime import datetime
+
+from .api import *
+from .config import *
 
 
 def log(level: str, message: str) -> None:
@@ -31,102 +13,106 @@ def log(level: str, message: str) -> None:
     print(f"[{ts}] [{level}] {message}", flush=True)
 
 
-async def _ansible_switches(tftp_link: str):
-    process = await asyncio.create_subprocess_exec(
-        "ansible-playbook",
-        "-i",
-        ANSIBLE_INVENTORY,
-        ANSIBLE_PLAYBOOK,
-        "--extra-vars",
-        f"tftp_link={tftp_link} \
-        switch_host={SWITCH_HOST} \
-        tftp_server_ip={TFTP_SERVER_IP} \
-        switch_username={SWITCH_USERNAME} \
-        ansible_password={ANSIBLE_PASSWORD} \
-        ansible_command_timeout={ANSIBLE_COMMAND_TIMEOUT}",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+class Flasher:
+    def __init__(self):
+        log("INFO", "Logging in...")
 
-    stdout, stderr = await process.communicate()
+        try:
+            login()
+        except requests.RequestException as error:
+            log("ERROR", f"Login failed: {error}")
+            time.sleep(RETRY_DELAY)
+            raise
 
-    if process.returncode != 0:
-        raise RuntimeError(
-            f"Deploy failed with code {process.returncode}\n{stderr.decode()}"
+        log("INFO", "Login successful")
+        log("INFO", "Initializing...")
+
+        try:
+            # need understand why is function needed here:
+            # get_upload_csrf()
+
+            html = get_latest_file()
+            image_id, image_name = parse_latest_file(html)
+
+            if image_name is None:
+                raise RuntimeError("Latest file ID not found")
+
+            if image_id is None:
+                raise RuntimeError("Latest file name not found")
+            self.IMAGE_NAME_TO_ID = {image_name: image_id}
+
+        except Exception as error:
+            log("ERROR", str(error))
+            time.sleep(RETRY_DELAY)
+            raise
+
+        log("INFO", f"Current image: {image_name} ({image_id})")
+
+        self.tasks = {}
+
+    async def ansible_switches(self, tftp_link: str, switch_host: str):
+        process = await asyncio.create_subprocess_exec(
+            "ansible-playbook",
+            "-i",
+            ANSIBLE_INVENTORY,
+            ANSIBLE_PLAYBOOK,
+            "--extra-vars",
+            f"tftp_link={tftp_link} \
+            switch_host={switch_host} \
+            tftp_server_ip={TFTP_SERVER_IP} \
+            switch_username={SWITCH_USERNAME} \
+            ansible_password={ANSIBLE_PASSWORD} \
+            ansible_command_timeout={ANSIBLE_COMMAND_TIMEOUT}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
 
-    return stdout.decode()
+        stdout, stderr = await process.communicate()
 
+        if process.returncode != 0:
+            raise RuntimeError(
+                f"Deploy failed with code {process.returncode}\n{stderr.decode()}"
+            )
 
-def _do_login() -> None:
-    log("INFO", "Logging in...")
+        return stdout.decode()
 
-    try:
-        login()
-    except requests.RequestException as error:
-        log("ERROR", f"Login failed: {error}")
-        time.sleep(RETRY_DELAY)
-        raise
+    async def deploy(self, current_id, current_name, tftp_link):
+        if current_name and IMAGE_TO_SWITCH.get(current_name):
+            try:
+                await self.ansible_switches(tftp_link, IMAGE_TO_SWITCH[current_name])
+                self.IMAGE_NAME_TO_ID[current_name] = current_id
+            except Exception as error:
+                log("ERROR", f"Deployment failed for {current_name}: {error}")
+                return
 
-    log("INFO", "Login successful")
+        log("NEW", f"New image: {current_name} ({current_id})")
+        log("INFO", f"TFTP: {tftp_link}")
 
-
-def _init_state() -> tuple:
-    log("INFO", "Initializing...")
-
-    try:
-        get_upload_csrf()
-        html = get_latest_file()
-        last_id, last_name = parse_latest_file(html)
-
-        if last_id is None:
-            raise RuntimeError("Latest file ID not found")
-
-        if last_name is None:
-            raise RuntimeError("Latest file name not found")
-
-    except Exception as error:
-        log("ERROR", str(error))
-        time.sleep(RETRY_DELAY)
-        raise
-
-    log("INFO", f"Current image: {last_name} ({last_id})")
-    return last_id, last_name
-
-
-async def main() -> None:
-    _do_login()
-
-    image_id, image_name = _init_state()
-
-    log("INFO", "Watching for a new image...")
-
-    while True:
+    async def run(self) -> int:
         for _ in range(POLL_INTERVAL):
             await asyncio.sleep(POLL_GRANULARITY)
 
         try:
             html = await asyncio.to_thread(get_latest_file)
+
             current_id, current_name = parse_latest_file(html)
+            if not current_id or not current_name:
+                return 0
 
-            if current_id is None:
-                continue
+            tftp_link = get_tftp_link(html)
 
-            if current_id != image_id:
-                image_id = current_id
-                image_name = current_name
+            old_id = self.IMAGE_NAME_TO_ID.get(current_name)
+            if current_id != old_id and not self.tasks.get(current_name):
+                task = asyncio.create_task(
+                    self.deploy(current_id, current_name, tftp_link)
+                )
+                self.tasks[current_name] = task
 
-                tftp_link = get_tftp_link(html)
+                def remove_task(done_task):
+                    if self.tasks.get(current_name) is done_task:
+                        self.tasks.pop(current_name, None)
 
-                log("NEW", f"New image: {current_name} ({current_id})")
-                log("INFO", f"TFTP: {tftp_link}")
-
-                await _ansible_switches(tftp_link)
-
-                await asyncio.sleep(POST_UPGRADE_DELAY)
-
-                log("INFO", "Watching for a new image...")
-
+                task.add_done_callback(remove_task)
             else:
                 log("INFO", "No new image")
 
@@ -135,3 +121,5 @@ async def main() -> None:
 
         except Exception as error:
             log("ERROR", str(error))
+
+        return 0

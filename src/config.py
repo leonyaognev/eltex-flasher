@@ -34,7 +34,6 @@ VALIDATOR_PASSWORD = _env("VALIDATOR_PASSWORD")
 # SSH (Ansible)
 SWITCH_USERNAME = _env("SWITCH_USERNAME", "admin")
 ANSIBLE_PASSWORD = _env("ANSIBLE_PASSWORD", "admin")
-SWITCH_HOST = _env("SWITCH_HOST", "192.168.246.94")
 TFTP_SERVER_IP = _env("TFTP_SERVER_IP", "192.168.246.95")
 
 # Paths
@@ -54,3 +53,11 @@ DOWNLOAD_CHUNK_SIZE = _env_int("DOWNLOAD_CHUNK_SIZE", 8192)
 
 # SSL
 VERIFY_SSL = _env_bool("VERIFY_SSL", False)
+
+# Image
+IMAGE_TO_SWITCH = {
+    # ph4:
+    "curr_image_msys": "192.168.246.93",
+    # ph5:
+    "curr_image_ac5": "192.168.246.94",
+}

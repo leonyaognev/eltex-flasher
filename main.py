@@ -4,7 +4,15 @@ import asyncio
 import sys
 from datetime import datetime
 
-from src.app import main
+from src.app import Flasher
+
+
+async def main():
+    main_app = Flasher()
+
+    while True:
+        await main_app.run()
+
 
 if __name__ == "__main__":
     try:

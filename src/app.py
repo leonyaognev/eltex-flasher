@@ -11,6 +11,8 @@ from .config import *
 def log(level: str, message: str) -> None:
     ts = datetime.now().strftime("%H:%M:%S")
     print(f"[{ts}] [{level}] {message}", flush=True)
+    with open("app.log", "w") as f:
+        f.write(f"[{ts}] [{level}] {message}")
 
 
 class Flasher:
@@ -92,9 +94,6 @@ class Flasher:
         log("INFO", f"TFTP: {tftp_link}")
 
     async def run(self) -> int:
-        for _ in range(POLL_INTERVAL):
-            await asyncio.sleep(POLL_GRANULARITY)
-
         current_id, current_name, tftp_link = self.fetch_latest_image()
         log("INFO", f"Current image: {current_name} ({current_id})")
 

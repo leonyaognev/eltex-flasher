@@ -11,8 +11,10 @@ dependencies = [
     "ansible>=14.3.0",
     "ansible-pylibssh>=1.4.0",
     "beautifulsoup4>=4.15.0",
+    "prompt-toolkit>=3.0.53",
     "python-dotenv>=1.1.0",
     "requests>=2.34.2",
+    "rich>=15.0.0",
 ]
 
 [project.scripts]

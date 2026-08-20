@@ -3,15 +3,25 @@
 import asyncio
 import sys
 from datetime import datetime
+import time
 
 from src.app import Flasher
+from src.ui import UI
+from src.config import *
 
 
 async def main():
     main_app = Flasher()
+    ui = UI(main_app)
 
     while True:
-        await main_app.run()
+        for _ in range(POLL_INTERVAL):
+            await main_app.run()
+            ui.render()
+
+            for _ in range(POLL_INTERVAL * 10):
+                await asyncio.sleep(0.1)
+                ui.refresh()
 
 
 if __name__ == "__main__":

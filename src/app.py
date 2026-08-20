@@ -26,21 +26,11 @@ class Flasher:
 
         log("INFO", "Login successful")
 
-        image_id = None
-        image_name = None
-
-        try:
-            html = get_latest_file()
-            image_id, image_name = parse_latest_file(html)
-
-        except Exception as error:
-            log("ERROR", str(error))
-            time.sleep(RETRY_DELAY)
-            raise
+        image_id, image_name, _ = self.fetch_latest_image()
+        self.IMAGE_NAME_TO_ID = {image_name: image_id}
 
         log("INFO", f"Current image: {image_name} ({image_id})")
 
-        self.IMAGE_NAME_TO_ID = {image_name: image_id}
         self.tasks = {}
 
     async def ansible_switches(self, tftp_link: str, switch_host: str):
@@ -69,6 +59,26 @@ class Flasher:
 
         return stdout.decode()
 
+    def fetch_latest_image(self):
+        try:
+            html = get_latest_file()
+
+            image_id, image_name = parse_latest_file(html)
+            if not image_id or not image_name:
+                raise RuntimeError("Image name or image id not found")
+
+            tftp_link = get_tftp_link(html)
+
+            return image_id, image_name, tftp_link
+
+        except requests.RequestException as error:
+            log("ERROR", f"HTTP: {error}")
+
+        except Exception as error:
+            log("ERROR", str(error))
+
+        return None, None, None
+
     async def deploy(self, current_id, current_name, tftp_link):
         if current_name and IMAGE_TO_SWITCH.get(current_name):
             try:
@@ -85,37 +95,21 @@ class Flasher:
         for _ in range(POLL_INTERVAL):
             await asyncio.sleep(POLL_GRANULARITY)
 
-        try:
-            html = get_latest_file()
+        current_id, current_name, tftp_link = self.fetch_latest_image()
+        log("INFO", f"Current image: {current_name} ({current_id})")
 
-            current_id, current_name = parse_latest_file(html)
-            log("INFO", f"Current image: {current_name} ({current_id})")
+        old_id = self.IMAGE_NAME_TO_ID.get(current_name)
+        if current_id != old_id and not self.tasks.get(current_name):
+            task = asyncio.create_task(self.deploy(current_id, current_name, tftp_link))
+            log("INFO", "New task created")
+            self.tasks[current_name] = task
 
-            if not current_id or not current_name:
-                return 0
+            def remove_task(done_task):
+                if self.tasks.get(current_name) is done_task:
+                    self.tasks.pop(current_name, None)
 
-            tftp_link = get_tftp_link(html)
-
-            old_id = self.IMAGE_NAME_TO_ID.get(current_name)
-            if current_id != old_id and not self.tasks.get(current_name):
-                task = asyncio.create_task(
-                    self.deploy(current_id, current_name, tftp_link)
-                )
-                log("INFO", "New task created")
-                self.tasks[current_name] = task
-
-                def remove_task(done_task):
-                    if self.tasks.get(current_name) is done_task:
-                        self.tasks.pop(current_name, None)
-
-                task.add_done_callback(remove_task)
-            else:
-                log("INFO", "No new image")
-
-        except requests.RequestException as error:
-            log("ERROR", f"HTTP: {error}")
-
-        except Exception as error:
-            log("ERROR", str(error))
+            task.add_done_callback(remove_task)
+        else:
+            log("INFO", "No new image")
 
         return 0

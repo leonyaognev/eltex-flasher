@@ -25,21 +25,13 @@ class Flasher:
             raise
 
         log("INFO", "Login successful")
-        log("INFO", "Initializing...")
+
+        image_id = None
+        image_name = None
 
         try:
-            # need understand why is function needed here:
-            # get_upload_csrf()
-
             html = get_latest_file()
             image_id, image_name = parse_latest_file(html)
-
-            if image_name is None:
-                raise RuntimeError("Latest file ID not found")
-
-            if image_id is None:
-                raise RuntimeError("Latest file name not found")
-            self.IMAGE_NAME_TO_ID = {image_name: image_id}
 
         except Exception as error:
             log("ERROR", str(error))
@@ -48,6 +40,7 @@ class Flasher:
 
         log("INFO", f"Current image: {image_name} ({image_id})")
 
+        self.IMAGE_NAME_TO_ID = {image_name: image_id}
         self.tasks = {}
 
     async def ansible_switches(self, tftp_link: str, switch_host: str):
@@ -79,8 +72,8 @@ class Flasher:
     async def deploy(self, current_id, current_name, tftp_link):
         if current_name and IMAGE_TO_SWITCH.get(current_name):
             try:
-                await self.ansible_switches(tftp_link, IMAGE_TO_SWITCH[current_name])
                 self.IMAGE_NAME_TO_ID[current_name] = current_id
+                await self.ansible_switches(tftp_link, IMAGE_TO_SWITCH[current_name])
             except Exception as error:
                 log("ERROR", f"Deployment failed for {current_name}: {error}")
                 return
@@ -93,9 +86,11 @@ class Flasher:
             await asyncio.sleep(POLL_GRANULARITY)
 
         try:
-            html = await asyncio.to_thread(get_latest_file)
+            html = get_latest_file()
 
             current_id, current_name = parse_latest_file(html)
+            log("INFO", f"Current image: {current_name} ({current_id})")
+
             if not current_id or not current_name:
                 return 0
 
@@ -106,6 +101,7 @@ class Flasher:
                 task = asyncio.create_task(
                     self.deploy(current_id, current_name, tftp_link)
                 )
+                log("INFO", "New task created")
                 self.tasks[current_name] = task
 
                 def remove_task(done_task):

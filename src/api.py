@@ -1,6 +1,6 @@
 import re
 from pathlib import Path
-from typing import Optional
+from typing import DefaultDict, Optional
 
 import requests
 import urllib3
@@ -85,12 +85,15 @@ def parse_latest_file(html: str) -> tuple[Optional[str], Optional[str]]:
             last_id = text
             break
 
-    element = soup.find(attrs={"data-file-name": True})
-
+    element = soup.find(lambda tag: tag.has_attr("data-file-name"))
     if element is None:
-        last_name: Optional[str] = None
-    else:
-        last_name = element["data-file-name"]
+        raise ValueError("Element with 'data-file-name' not found")
+
+    last_name: Optional[str] = None
+
+    value = element["data-file-name"]
+    if isinstance(value, str):
+        last_name = value
         last_name = Path(last_name).name
 
     return last_id, last_name

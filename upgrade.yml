@@ -8,10 +8,14 @@
       ansible.netcommon.cli_command:
         command: "boot system {{ tftp_link }}"
         prompt:
-          - "console#"
+          - "bytes copied in"
+          - "Copy: "
+          - "#"
         answer:
           - ""
-        check_all: true
+          - ""
+          - ""
+      ignore_errors: true
 
     - name: Reload switch
       ansible.netcommon.cli_command:

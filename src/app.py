@@ -4,8 +4,17 @@ import requests
 
 from datetime import datetime
 
-from .api import *
-from .config import *
+from image_to_switch import IMAGE_TO_SWITCH
+from .api import login, get_latest_file, get_tftp_link, parse_latest_file
+from .config import (
+    RETRY_DELAY,
+    ANSIBLE_INVENTORY,
+    ANSIBLE_PLAYBOOK,
+    TFTP_SERVER_IP,
+    SWITCH_USERNAME,
+    ANSIBLE_PASSWORD,
+    ANSIBLE_COMMAND_TIMEOUT,
+)
 
 
 def log(level: str, message: str) -> None:

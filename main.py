@@ -5,9 +5,7 @@ import sys
 from datetime import datetime
 import time
 
-from src.app import Flasher
-from src.ui import UI
-from src.config import *
+from src import Flasher, UI, POLL_INTERVAL
 
 
 async def main():

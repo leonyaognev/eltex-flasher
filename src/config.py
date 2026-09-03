@@ -55,9 +55,12 @@ DOWNLOAD_CHUNK_SIZE = _env_int("DOWNLOAD_CHUNK_SIZE", 8192)
 VERIFY_SSL = _env_bool("VERIFY_SSL", False)
 
 # Image
-IMAGE_TO_SWITCH = {
+IMAGE_TO_SWITCH: dict[str, list] = {
     # ph4:
-    "curr_image_msys": "192.168.246.93",
+    "curr_image_msys": ["192.168.246.93"],
     # ph5:
-    "curr_image_ac5": "192.168.246.94",
+    "curr_image_ac5": [
+        # "192.168.246.92",
+        "192.168.246.94",
+    ],
 }

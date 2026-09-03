@@ -131,12 +131,12 @@ class UI:
         else:
             name, image_id = latest
 
-            target = IMAGE_TO_SWITCH.get(name, "Unknown")
+            targets = IMAGE_TO_SWITCH.get(name, ["Unknown"])
 
             table.add_row("STATUS", "[bold green]READY[/]")
             table.add_row("IMAGE", name)
             table.add_row("IMAGE ID", str(image_id))
-            table.add_row("TARGET", target)
+            table.add_row("TARGET", " ".join(targets))
 
         return Panel(
             table,

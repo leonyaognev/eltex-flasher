@@ -81,14 +81,13 @@ class Flasher:
 
         return None, None, None
 
-    async def deploy(self, current_id, current_name, tftp_link):
-        if current_name and IMAGE_TO_SWITCH.get(current_name):
-            try:
-                self.IMAGE_NAME_TO_ID[current_name] = current_id
-                await self.ansible_switches(tftp_link, IMAGE_TO_SWITCH[current_name])
-            except Exception as error:
-                log("ERROR", f"Deployment failed for {current_name}: {error}")
-                return
+    async def deploy(self, current_id, current_name, tftp_link, switch):
+        try:
+            self.IMAGE_NAME_TO_ID[current_name] = current_id
+            await self.ansible_switches(tftp_link, switch)
+        except Exception as error:
+            log("ERROR", f"Deployment failed for {current_name}: {error}")
+            return
 
         log("NEW", f"New image: {current_name} ({current_id})")
         log("INFO", f"TFTP: {tftp_link}")
@@ -99,15 +98,22 @@ class Flasher:
 
         old_id = self.IMAGE_NAME_TO_ID.get(current_name)
         if current_id != old_id and not self.tasks.get(current_name):
-            task = asyncio.create_task(self.deploy(current_id, current_name, tftp_link))
-            log("INFO", "New task created")
-            self.tasks[current_name] = task
 
             def remove_task(done_task):
                 if self.tasks.get(current_name) is done_task:
                     self.tasks.pop(current_name, None)
 
-            task.add_done_callback(remove_task)
+            if current_name and IMAGE_TO_SWITCH.get(current_name):
+                switches = IMAGE_TO_SWITCH[current_name]
+                for switch in switches:
+                    task = asyncio.create_task(
+                        self.deploy(current_id, current_name, tftp_link, switch)
+                    )
+
+                    self.tasks[current_name] = task
+                    task.add_done_callback(remove_task)
+
+                    log("INFO", "New task created")
         else:
             log("INFO", "No new image")
 

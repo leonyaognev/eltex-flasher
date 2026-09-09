@@ -11,8 +11,7 @@ from rich.table import Table
 from rich.text import Text
 
 from .app import Flasher
-from .config import POLL_INTERVAL
-from image_to_switch import IMAGE_TO_SWITCH
+from .config import POLL_INTERVAL, IMAGE_TO_SWITCH
 
 
 class UI:

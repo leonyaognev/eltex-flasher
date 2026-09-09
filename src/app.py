@@ -4,7 +4,6 @@ import requests
 
 from datetime import datetime
 
-from image_to_switch import IMAGE_TO_SWITCH
 from .api import login, get_latest_file, get_tftp_link, parse_latest_file
 from .config import (
     RETRY_DELAY,
@@ -14,6 +13,7 @@ from .config import (
     SWITCH_USERNAME,
     ANSIBLE_PASSWORD,
     ANSIBLE_COMMAND_TIMEOUT,
+    IMAGE_TO_SWITCH,
 )
 
 

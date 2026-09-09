@@ -12,14 +12,12 @@ from .config import (
     VALIDATOR_PASSWORD,
     VALIDATOR_URL,
     VALIDATOR_USER,
-    VERIFY_SSL,
 )
 
 session = requests.Session()
 
-session.verify = VERIFY_SSL
-if not VERIFY_SSL:
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+session.verify = False
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def get_csrf_from_login() -> str:

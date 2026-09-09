@@ -1,0 +1,34 @@
+{
+    "validator": {
+        "url": "https://validator-v2.eltex.loc"
+    },
+    "ssh": {
+        "tftp_server_ip": "192.168.246.95"
+    },
+    "paths": {
+        "download_dir": "~/work_pc",
+        "ansible_inventory": "ansible/inventory.yml",
+        "ansible_playbook": "ansible/upgrade.yml"
+    },
+    "timeouts": {
+        "retry_delay": 2,
+        "poll_interval": 30,
+        "poll_granularity": 1,
+        "post_upgrade_delay": 2,
+        "ansible_command_timeout": 300
+    },
+    "download": {
+        "chunk_size": 8192
+    },
+    "images": {
+        "curr_image_msys": [
+            "192.168.246.93"
+        ],
+        "curr_image_ac5": [
+            "192.168.246.92"
+        ],
+        "curr_image_ac5_second": [
+            "192.168.246.94"
+        ]
+    }
+}

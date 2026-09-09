@@ -8,15 +8,15 @@ Monitors the Eltex Validator web UI for new firmware images and pushes them to s
 
 ```
 ┌──────────────┐      poll       ┌─────────────────┐
-│   Flasher    │ ──────────────> │ Eltex Validator  │
-│  (Python)    │ <────────────── │   (Web UI API)   │
+│   Flasher    │ ──────────────> │ Eltex Validator │
+│  (Python)    │ <────────────── │   (Web UI API)  │
 └──────┬───────┘    new image    └─────────────────┘
        │
        │  ansible-playbook
        ▼
 ┌──────────────┐     TFTP      ┌──────────────────┐
-│   Ansible    │ ────────────> │  Eltex MES Switch │
-│              │    firmware    │                   │
+│   Ansible    │ ────────────> │  Eltex MES Switch│
+│              │    firmware   │                  │
 └──────────────┘               └──────────────────┘
 ```
 
@@ -32,16 +32,18 @@ The tool does **not** enable Eltex's persistent "download firmware on boot" mech
 
 ```
 eltex-flasher/
-├── main.py              # Entry point
-├── inventory.yml        # Ansible inventory (switch hosts)
-├── upgrade.yml          # Ansible playbook (boot + reload)
+├── main.py                # Entry point
+├── config.json            # Main configuration (network, timeouts, images)
+├── ansible/
+│   ├── inventory.yml      # Ansible inventory (switch hosts)
+│   └── upgrade.yml        # Ansible playbook (boot + reload)
 ├── src/
-│   ├── api.py           # Eltex Validator HTTP client
-│   ├── app.py           # Flasher orchestrator (poll + deploy)
-│   ├── config.py        # Configuration from .env
-│   └── ui.py            # (reserved)
-├── .env.example         # Environment variable template
-└── pyproject.toml       # Python project metadata
+│   ├── api.py             # Eltex Validator HTTP client
+│   ├── app.py             # Flasher orchestrator (poll + deploy)
+│   ├── config.py          # Configuration loader (.env + config.json)
+│   └── ui.py              # Rich terminal UI
+├── .env.example           # Secrets template
+└── pyproject.toml         # Python project metadata
 ```
 
 ## Prerequisites
@@ -68,51 +70,93 @@ ansible-galaxy collection install nikitamishagin.eltex_mes
 
 ## Configuration
 
-Copy the example environment file and fill in your values:
+Configuration is split between two files:
+
+- **`config.json`** — network settings, paths, timeouts, and image-to-switch mapping
+- **`.env`** — secrets (credentials only)
+
+### 1. Create `.env` from the template
 
 ```bash
 cp .env.example .env
 ```
 
-| Variable | Description | Default |
-|---|---|---|
-| `VALIDATOR_URL` | Eltex Validator base URL | `https://validator-v2.eltex.loc` |
-| `VALIDATOR_USER` | Validator login | — |
-| `VALIDATOR_PASSWORD` | Validator password | — |
-| `ANSIBLE_USER` | SSH username for switches | `admin` |
-| `ANSIBLE_PASSWORD` | SSH password for switches | `admin` |
-| `TFTP_SERVER_IP` | IP of the TFTP server switches pull from | `192.168.246.95` |
-| `DOWNLOAD_DIR` | Local dir for downloaded images | `~/work_pc` |
-| `POLL_INTERVAL` | Seconds between Validator checks | `30` |
-| `ANSIBLE_COMMAND_TIMEOUT` | Ansible command timeout in seconds | `600` |
+Fill in the credentials:
 
-Edit `inventory.yml` to add your switches and `src/config.py` to map image names to switch IPs.
+| Variable             | Description               | Default |
+| -------------------- | ------------------------- | ------- |
+| `VALIDATOR_USER`     | Validator login           | `admin` |
+| `VALIDATOR_PASSWORD` | Validator password        | `admin` |
+| `SWITCH_USERNAME`    | SSH username for switches | `admin` |
+| `ANSIBLE_PASSWORD`   | SSH password for switches | `admin` |
+
+### 2. Edit `config.json`
+
+```jsonc
+{
+    "validator": {
+        "url": "https://validator-v2.eltex.loc"   // Validator base URL
+    },
+    "ssh": {
+        "tftp_server_ip": "192.168.246.95"         // TFTP server IP for switches
+    },
+    "paths": {
+        "download_dir": "~/work_pc",               // Local dir for downloaded images
+        "ansible_inventory": "ansible/inventory.yml",
+        "ansible_playbook": "ansible/upgrade.yml"
+    },
+    "timeouts": {
+        "retry_delay": 2,                          // Seconds before retry on error
+        "poll_interval": 30,                       // Seconds between Validator checks
+        "poll_granularity": 1,                     // UI refresh granularity
+        "post_upgrade_delay": 2,                   // Delay after upgrade completes
+        "ansible_command_timeout": 300             // Ansible SSH command timeout
+    },
+    "download": {
+        "chunk_size": 8192                         // Download chunk size in bytes
+    },
+    "images": {
+        "<image_name>": ["<switch_ip>", ...]       // Map firmware images to target switches
+    }
+}
+```
+
+### 3. Map images to switches
+
+The `images` section maps firmware image names (as shown in the Validator UI) to the IP addresses of the switches that should receive them:
+
+```json
+"images": {
+    "curr_image_msys": ["192.168.246.93"],
+    "curr_image_ac5": ["192.168.246.92", "192.168.246.94"]
+}
+```
+
+When the Flasher detects a new version of `curr_image_msys`, it will deploy it to `192.168.246.93` via Ansible.
 
 ## Usage
 
 ```bash
-# Run the Flasher (continuous polling mode)
 uv run main.py
 ```
 
 The Flasher will:
-- Log into the Validator
-- Parse the latest firmware image from the files page
-- Poll periodically for new versions
-- Trigger Ansible deployment when a new image appears
 
-### Stop
+1. Log into the Validator
+2. Display a live terminal UI with firmware status, active deployments, and uptime
+3. Poll periodically for new image versions
+4. Trigger Ansible deployment to mapped switches when a new image appears
 
-Press `Ctrl+C` to stop gracefully.
+Press `Ctrl+C` to stop.
 
 ## Upgrade workflow (per switch)
 
-| Step | What happens |
-|---|---|
-| 1 | Ansible connects via SSH |
-| 2 | Runs `boot system tftp://<server>/<image>` — downloads to inactive slot |
-| 3 | Runs `reload` — switch reboots |
-| 4 | Switch boots from the newly written image |
+| Step | What happens                                                            |
+| ---- | ----------------------------------------------------------------------- |
+| 1    | Ansible connects via SSH                                                |
+| 2    | Runs `boot system tftp://<server>/<image>` — downloads to inactive slot |
+| 3    | Runs `reload` — switch reboots                                          |
+| 4    | Switch boots from the newly written image                               |
 
 ## Important notes
 

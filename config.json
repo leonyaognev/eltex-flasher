@@ -6,7 +6,7 @@
         "tftp_server_ip": "192.168.246.95"
     },
     "paths": {
-        "download_dir": "~/work_pc",
+        "download_dir": "~/Downloads",
         "ansible_inventory": "ansible/inventory.yml",
         "ansible_playbook": "ansible/upgrade.yml"
     },
@@ -25,10 +25,13 @@
             "192.168.246.93"
         ],
         "curr_image_ac5": [
-            "192.168.246.92"
+            "192.168.246.94"
         ],
         "curr_image_ac5_second": [
             "192.168.246.94"
+        ],
+        "curr_image_cn913x": [
+            "192.168.246.91"
         ]
     }
 }

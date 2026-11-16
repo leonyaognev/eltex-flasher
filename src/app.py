@@ -20,8 +20,8 @@ from .config import (
 def log(level: str, message: str) -> None:
     ts = datetime.now().strftime("%H:%M:%S")
     print(f"[{ts}] [{level}] {message}", flush=True)
-    with open("app.log", "w") as f:
-        f.write(f"[{ts}] [{level}] {message}")
+    with open("app.log", "a") as f:
+        f.write(f"[{ts}] [{level}] {message}\n")
 
 
 class Flasher:
@@ -65,7 +65,8 @@ class Flasher:
 
         if process.returncode != 0:
             raise RuntimeError(
-                f"Deploy failed with code {process.returncode}\n{stderr.decode()}"
+                f"Deploy failed with code {
+                    process.returncode}\n{stderr.decode()}"
             )
 
         return stdout.decode()
@@ -116,7 +117,8 @@ class Flasher:
                 switches = IMAGE_TO_SWITCH[current_name]
                 for switch in switches:
                     task = asyncio.create_task(
-                        self.deploy(current_id, current_name, tftp_link, switch)
+                        self.deploy(current_id, current_name,
+                                    tftp_link, switch)
                     )
 
                     self.tasks[current_name] = task
